@@ -444,7 +444,7 @@ const ADB = {
   },
 
   // pulls a file from the device.
-  // send "host:transport-any" why??
+  // send "host:transport"
   // if !OKAY, return
   // send "sync:"
   // if !OKAY, return
@@ -455,7 +455,7 @@ const ADB = {
   //   recv DATA + hex4 + data
   // recv DONE + hex4(0)
   // send QUIT + hex4(0)
-  pull: function adb_pull(aFrom, aDest) {
+  pull: function adb_pull(aId, aFrom, aDest) {
     let deferred = promise.defer();
     let socket;
     let state;
@@ -544,7 +544,7 @@ const ADB = {
           runFSM();
           break;
         case "send-transport":
-          req = ADB._createRequest("host:transport-any");
+          req = ADB._createRequest("host:transport:" + aId);
           ADB.sockSend(socket, req);
           state = "wait-transport";
           break;
@@ -748,7 +748,7 @@ const ADB = {
   // pushes a file to the device.
   // aFrom and aDest are full paths.
   // XXX we should STAT the remote path before sending.
-  push: function adb_push(aFrom, aDest) {
+  push: function adb_push(aId, aFrom, aDest) {
     let deferred = promise.defer();
     let socket;
     let state;
@@ -775,7 +775,7 @@ const ADB = {
           runFSM();
           break;
         case "send-transport":
-          req = ADB._createRequest("host:transport-any");
+          req = ADB._createRequest("host:transport:" + aId);
           ADB.sockSend(socket, req);
           state = "wait-transport";
           break
@@ -917,7 +917,7 @@ const ADB = {
   },
 
   // Run a shell command
-  shell: function adb_shell(aCommand) {
+  shell: function adb_shell(aId, aCommand) {
     let deferred = promise.defer();
     let socket;
     let state;
@@ -940,7 +940,7 @@ const ADB = {
           runFSM();
         break;
         case "send-transport":
-          req = ADB._createRequest("host:transport-any");
+          req = ADB._createRequest("host:transport:" + aId);
           ADB.sockSend(socket, req);
           state = "wait-transport";
         break
@@ -1003,7 +1003,7 @@ const ADB = {
     return deferred.promise;
   },
 
-  root: function adb_root() {
+  root: function adb_root(aId) {
     let deferred = promise.defer();
     let socket;
     let state;
@@ -1025,7 +1025,7 @@ const ADB = {
           runFSM();
         break;
         case "send-transport":
-          req = ADB._createRequest("host:transport-any");
+          req = ADB._createRequest("host:transport:" + aId);
           ADB.sockSend(socket, req);
           state = "wait-transport";
         break

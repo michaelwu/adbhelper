@@ -60,6 +60,10 @@ adb.start().then(function () {
  */
 function Device(id) {
   this.id = id;
+  this.shell = adb.shell.bind(adb, this.id);
+  this.forwardPort = adb.forwardPort.bind(adb);
+  this.push = adb.push.bind(adb, this.id);
+  this.pull = adb.pull.bind(adb, this.id);
 }
 
 Device.prototype = {
@@ -79,20 +83,15 @@ Device.prototype = {
               .then(() => port);
   },
 
-  shell: adb.shell.bind(adb),
-  forwardPort: adb.forwardPort.bind(adb),
-  push: adb.push.bind(adb),
-  pull: adb.pull.bind(adb),
-
   isRoot: function() {
-    return adb.shell("id").then(stdout => {
+    return adb.shell(this.id, "id").then(stdout => {
       let uid = stdout.match(/uid=(\d+)/)[1];
       return uid == "0";
     });
   },
 
   summonRoot: function() {
-    return adb.root();
+    return adb.root(this.id);
   },
 
   getModel: function() {
