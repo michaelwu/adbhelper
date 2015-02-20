@@ -61,7 +61,7 @@ adb.start().then(function () {
 function Device(id) {
   this.id = id;
   this.shell = adb.shell.bind(adb, this.id);
-  this.forwardPort = adb.forwardPort.bind(adb);
+  this.forwardPort = adb.forwardPort.bind(adb, this.id);
   this.push = adb.push.bind(adb, this.id);
   this.pull = adb.pull.bind(adb, this.id);
 }
@@ -79,7 +79,7 @@ Device.prototype = {
     if (remotePort) {
       remote = "tcp:" + remotePort;
     }
-    return adb.forwardPort(local, remote)
+    return adb.forwardPort(this.id, local, remote)
               .then(() => port);
   },
 

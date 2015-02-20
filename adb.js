@@ -344,35 +344,36 @@ const ADB = {
       let packet = this._unpackPacket(data, !waitForFirst);
       waitForFirst = false;
 
-      if (packet.data == "") {
-        // All devices got disconnected.
-        for (let dev in devices) {
-          devices[dev] = false;
-          events.emit(ADB, "device-disconnected", dev);
+      // One line per device, each line being $DEVICE\t(offline|device)
+      let lines = packet.data.split("\n");
+      let newDev = {};
+      lines.forEach(function(aLine) {
+        if (aLine.length == 0) {
+          return;
         }
-      } else {
-        // One line per device, each line being $DEVICE\t(offline|device)
-        let lines = packet.data.split("\n");
-        let newDev = {};
-        lines.forEach(function(aLine) {
-          if (aLine.length == 0) {
-            return;
-          }
 
-          let [dev, status] = aLine.split("\t");
-          newDev[dev] = status !== "offline";
-        });
-        // Check which device changed state.
-        for (let dev in newDev) {
-          if (devices[dev] != newDev[dev]) {
-            if (dev in devices || newDev[dev]) {
-              let topic = newDev[dev] ? "device-connected"
-                                      : "device-disconnected";
-              events.emit(ADB, topic, dev);
-            }
-            devices[dev] = newDev[dev];
+        let [dev, status] = aLine.split("\t");
+        newDev[dev] = status !== "offline";
+      });
+      // Check which device changed state.
+      for (let dev in newDev) {
+        if (devices[dev] != newDev[dev]) {
+          if (dev in devices || newDev[dev]) {
+            let topic = newDev[dev] ? "device-connected"
+                                    : "device-disconnected";
+            events.emit(ADB, topic, dev);
           }
+          devices[dev] = newDev[dev];
         }
+      }
+
+      // If the device isn't listed, it's been completely disconnected
+      for (let dev in devices) {
+        if (dev in newDev)
+          continue;
+
+        devices[dev] = false;
+        events.emit(ADB, "device-disconnected", dev);
       }
     }.bind(this);
 
@@ -400,11 +401,11 @@ const ADB = {
   },
 
   // sends adb forward aLocalPort aDevicePort
-  forwardPort: function adb_forwardPort(aLocalPort, aDevicePort) {
+  forwardPort: function adb_forwardPort(aId, aLocalPort, aDevicePort) {
     console.log("forwardPort " + aLocalPort + " -- " + aDevicePort);
     // <host-prefix>:forward:<local>;<remote>
 
-    return this.runCommand("host:forward:" + aLocalPort + ";" + aDevicePort)
+    return this.runCommand("host:forward:" + aLocalPort + ";" + aDevicePort, aId)
                .then(function onSuccess(data) {
                  return data;
                });
@@ -1078,8 +1079,9 @@ const ADB = {
 
   // Asynchronously runs an adb command.
   // @param aCommand The command as documented in
+  // @param aId The adb device that this command applies to. Optional.
   // http://androidxref.com/4.0.4/xref/system/core/adb/SERVICES.TXT
-  runCommand: function adb_runCommand(aCommand) {
+  runCommand: function adb_runCommand(aCommand, aId) {
     console.log("runCommand " + aCommand);
     let deferred = promise.defer();
     if (!this.ready) {
@@ -1088,40 +1090,76 @@ const ADB = {
       return deferred.promise;
     }
 
+    let shutdown = function() {
+      console.log("runCommand shutdown");
+      socket.close();
+      deferred.reject("BAD_RESPONSE");
+    }
+
+    let state;
+    let runFSM = function runFSM(aData) {
+      console.log("runFSM " + state);
+      let req;
+      switch(state) {
+        case "start":
+          state = aId ? "send-transport" : "send-command";
+          runFSM();
+        break;
+        case "send-transport":
+          req = ADB._createRequest("host:transport:" + aId);
+          ADB.sockSend(socket, req);
+          state = "wait-transport";
+        break;
+        case "wait-transport":
+          if (!ADB._checkResponse(aData, OKAY)) {
+            shutdown();
+            return;
+          }
+          state = "send-command";
+          runFSM();
+        break;
+        case "send-command":
+          req = ADB._createRequest(aCommand);
+          ADB.sockSend(socket, req);
+          state = "wait-command";
+        break;
+        case "wait-command":
+          if (!ADB._checkResponse(aData, OKAY)) {
+            shutdown();
+            return;
+          }
+          socket.close();
+          let packet = ADB._unpackPacket(aData, false);
+          deferred.resolve(packet.data);
+        break;
+        default:
+          console.log("runCommand Unexpected State: " + state);
+          deferred.reject("UNEXPECTED_STATE");
+      }
+    }
+
     let socket = this._connect();
     let waitForFirst = true;
     let devices = {};
 
     socket.onopen = function() {
       console.log("runCommand onopen");
-      let req = this._createRequest(aCommand);
-      ADB.sockSend(socket, req);
-
+      state = "start";
+      runFSM();
     }.bind(this);
 
     socket.onerror = function() {
       console.log("runCommand onerror");
       deferred.reject("NETWORK_ERROR");
-    }
+    };
 
     socket.onclose = function() {
       console.log("runCommand onclose");
-    }
+    };
 
     socket.ondata = function(aEvent) {
       console.log("runCommand ondata");
-      let data = aEvent.data;
-
-      if (!this._checkResponse(data, OKAY)) {
-        socket.close();
-        let packet = this._unpackPacket(data, false);
-        console.log("Error: " + packet.data);
-        deferred.reject("PROTOCOL_ERROR");
-        return;
-      }
-
-      let packet = this._unpackPacket(data, false);
-      deferred.resolve(packet.data);
+      runFSM(aEvent.data);
     }.bind(this);
 
 
